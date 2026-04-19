@@ -1,4 +1,4 @@
-# Arena RPG — Wizard Duel
+# Wiz Bash
 
 A local 2-player wizard battle built with Python and pygame. Two wizards face off in an arena, casting spells and managing mana until one falls.
 
