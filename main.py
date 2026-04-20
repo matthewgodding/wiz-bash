@@ -3,8 +3,9 @@ import sys
 from player import Player
 from arena import Arena
 from spells import SPELL_DEFS
-from menu import show_mode_select, show_difficulty_select
+from menu import show_mode_select, show_difficulty_select, show_controller_assignment
 from ai_controller import AIController
+from input_manager import InputManager
 
 SCREEN_W, SCREEN_H = 960, 620
 PANEL_W = 150          # side panel width for each player's spell list
@@ -95,9 +96,12 @@ def draw_spell_panel(surface, player, panel_x, panel_y, font, font_small, now,
             surface.blit(cd_surf, (panel_x + 5, sy))
 
 
-def draw_hud(surface, p1, p2, font, font_small, now, mode="2p", difficulty=None):
+def draw_hud(surface, p1, p2, font, font_small, now, mode="2p", difficulty=None, input_manager=None):
     # Left panel — P1
-    draw_spell_panel(surface, p1, 0, 10, font, font_small, now)
+    p1_label = p1.name
+    if input_manager is not None and input_manager.get_assigned_controller(0) is not None:
+        p1_label = f"{p1.name} (PAD)"
+    draw_spell_panel(surface, p1, 0, 10, font, font_small, now, label_override=p1_label)
 
     # Right panel — P2 (or CPU in 1p mode)
     if mode == "1p":
@@ -105,7 +109,10 @@ def draw_hud(surface, p1, p2, font, font_small, now, mode="2p", difficulty=None)
         draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now,
                          label_override="CPU", subtitle=subtitle)
     else:
-        draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now)
+        p2_label = p2.name
+        if input_manager is not None and input_manager.get_assigned_controller(1) is not None:
+            p2_label = f"{p2.name} (PAD)"
+        draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now, label_override=p2_label)
 
     # Controls hint at very bottom center
     if mode == "1p":
@@ -135,7 +142,7 @@ def draw_winner(surface, winner, font_big, mode="2p", p1_name="P1"):
     surface.blit(sub, sub.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 20)))
 
 
-def run_game(screen, clock, fonts, arena, mode, difficulty=None):
+def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
     """
     Runs a single match. Returns when the match ends (winner determined and R pressed).
     mode: "1p" or "2p"
@@ -146,6 +153,9 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
     font_small = fonts["font_small"]
 
     p1, p2 = make_players(arena)
+    input_manager.set_player_keyboard_controls(0, p1.controls)
+    input_manager.set_player_keyboard_controls(1, p2.controls)
+    input_manager.auto_assign_for_mode(mode)
     projectiles = []
     winner = None
 
@@ -159,6 +169,7 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
         keys = pygame.key.get_pressed()
 
         for event in pygame.event.get():
+            input_manager.process_event(event)
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
@@ -175,13 +186,18 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
                         p2.handle_spell_switch(event)
 
         if not winner:
-            # Player 1 always uses keyboard
-            p1.handle_input(keys, arena.rect)
+            p1_actions = input_manager.get_actions(0, keys)
+            p2_actions = input_manager.get_actions(1, keys)
+
+            p1.handle_spell_switch_action(p1_actions)
+            if mode == "2p":
+                p2.handle_spell_switch_action(p2_actions)
+
+            p1.handle_input(keys, arena.rect, actions=p1_actions)
 
             if mode == "2p":
-                # Both players use keyboard in 2p mode
-                p2.handle_input(keys, arena.rect)
-                proj = p2.try_cast(keys, now, p1, projectiles, arena.rect)
+                p2.handle_input(keys, arena.rect, actions=p2_actions)
+                proj = p2.try_cast(keys, now, p1, projectiles, arena.rect, actions=p2_actions)
                 if proj:
                     projectiles.append(proj)
             else:
@@ -192,7 +208,7 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
                 # p2 still needs status effect updates
                 p2.update(dt)
 
-            proj = p1.try_cast(keys, now, p2, projectiles, arena.rect)
+            proj = p1.try_cast(keys, now, p2, projectiles, arena.rect, actions=p1_actions)
             if proj:
                 projectiles.append(proj)
 
@@ -221,7 +237,7 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
             p.draw(screen)
         p1.draw(screen)
         p2.draw(screen)
-        draw_hud(screen, p1, p2, font, font_small, now, mode=mode, difficulty=difficulty)
+        draw_hud(screen, p1, p2, font, font_small, now, mode=mode, difficulty=difficulty, input_manager=input_manager)
 
         if winner:
             draw_winner(screen, winner, font_big, mode=mode, p1_name=p1.name)
@@ -231,6 +247,7 @@ def run_game(screen, clock, fonts, arena, mode, difficulty=None):
 
 def main():
     pygame.init()
+    input_manager = InputManager()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("Arena RPG — Wizard Duel")
     clock = pygame.time.Clock()
@@ -244,11 +261,15 @@ def main():
     arena = Arena(SCREEN_W, SCREEN_H, margin=60, left_margin=PANEL_W + 10, right_margin=PANEL_W + 10)
 
     while True:
-        mode = show_mode_select(screen, fonts)
+        mode = show_mode_select(screen, fonts, input_manager=input_manager)
+        input_manager.auto_assign_for_mode(mode)
+        if mode == "2p" and input_manager.has_any_controller():
+            show_controller_assignment(screen, fonts, input_manager)
+            input_manager.auto_assign_for_mode(mode)
         difficulty = None
         if mode == "1p":
-            difficulty = show_difficulty_select(screen, fonts)
-        run_game(screen, clock, fonts, arena, mode, difficulty)
+            difficulty = show_difficulty_select(screen, fonts, input_manager=input_manager)
+        run_game(screen, clock, fonts, arena, mode, input_manager, difficulty)
         # After run_game returns, loop back to show_mode_select
 
 

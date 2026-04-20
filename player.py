@@ -43,13 +43,18 @@ class Player:
     def current_spell(self):
         return SPELL_DEFS[self.selected_spell]
 
-    def handle_input(self, keys, arena_rect):
+    def handle_input(self, keys, arena_rect, actions=None):
         speed = PLAYER_SPEED // 2 if self.slow_timer > 0 else PLAYER_SPEED
         dx, dy = 0, 0
         if keys[self.controls["up"]]:    dy -= speed
         if keys[self.controls["down"]]:  dy += speed
         if keys[self.controls["left"]]:  dx -= speed
         if keys[self.controls["right"]]: dx += speed
+        if actions is not None:
+            if actions.get("up"):    dy -= speed
+            if actions.get("down"):  dy += speed
+            if actions.get("left"):  dx -= speed
+            if actions.get("right"): dx += speed
         self.x = max(arena_rect.left, min(arena_rect.right - self.size, self.x + dx))
         self.y = max(arena_rect.top,  min(arena_rect.bottom - self.size, self.y + dy))
 
@@ -59,9 +64,18 @@ class Player:
         elif event.key == self.controls["spell_prev"]:
             self.selected_spell = (self.selected_spell - 1) % len(SPELL_DEFS)
 
-    def try_cast(self, keys, now, target, projectiles, arena_rect):
+    def handle_spell_switch_action(self, actions):
+        if actions.get("spell_next"):
+            self.selected_spell = (self.selected_spell + 1) % len(SPELL_DEFS)
+        elif actions.get("spell_prev"):
+            self.selected_spell = (self.selected_spell - 1) % len(SPELL_DEFS)
+
+    def try_cast(self, keys, now, target, projectiles, arena_rect, actions=None):
         """Returns a new Projectile or None. Instant spells resolve here."""
-        if not keys[self.controls["cast"]]:
+        cast_pressed = bool(keys[self.controls["cast"]])
+        if actions is not None:
+            cast_pressed = cast_pressed or bool(actions.get("cast"))
+        if not cast_pressed:
             return None
         spell = self.current_spell
         if now - self.spell_cooldowns[self.selected_spell] < spell["cooldown"]:

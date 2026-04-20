@@ -24,7 +24,11 @@ def _draw_button(surface, rect, label, font, hovered=False):
     surface.blit(text, text.get_rect(center=rect.center))
 
 
-def show_mode_select(screen, fonts) -> str:
+def _next_menu_index(current, direction, item_count):
+    return (current + direction) % item_count
+
+
+def show_mode_select(screen, fonts, input_manager=None) -> str:
     """Runs an event loop until the player clicks a mode button.
 
     Returns:
@@ -37,6 +41,11 @@ def show_mode_select(screen, fonts) -> str:
     btn_1p = pygame.Rect(SCREEN_W // 2 - btn_w // 2, SCREEN_H // 2 - 10, btn_w, btn_h)
     btn_2p = pygame.Rect(SCREEN_W // 2 - btn_w // 2, SCREEN_H // 2 + 80, btn_w, btn_h)
 
+    selected_idx = 0
+    labels = ("1 Player", "2 Players")
+    rects = (btn_1p, btn_2p)
+    values = ("1p", "2p")
+
     while True:
         mouse_pos = pygame.mouse.get_pos()
 
@@ -44,6 +53,8 @@ def show_mode_select(screen, fonts) -> str:
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if input_manager is not None:
+                input_manager.process_event(event)
             if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
                 pygame.quit()
                 sys.exit()
@@ -52,6 +63,22 @@ def show_mode_select(screen, fonts) -> str:
                     return "1p"
                 if btn_2p.collidepoint(event.pos):
                     return "2p"
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    selected_idx = _next_menu_index(selected_idx, -1, len(values))
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    selected_idx = _next_menu_index(selected_idx, 1, len(values))
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return values[selected_idx]
+
+        if input_manager is not None:
+            menu_actions = input_manager.get_menu_actions()
+            if menu_actions["up"]:
+                selected_idx = _next_menu_index(selected_idx, -1, len(values))
+            elif menu_actions["down"]:
+                selected_idx = _next_menu_index(selected_idx, 1, len(values))
+            if menu_actions["confirm"]:
+                return values[selected_idx]
 
         screen.fill(BG_COLOR)
 
@@ -61,13 +88,14 @@ def show_mode_select(screen, fonts) -> str:
         subtitle = font.render("Select Mode", True, (180, 180, 200))
         screen.blit(subtitle, subtitle.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 - 50)))
 
-        _draw_button(screen, btn_1p, "1 Player", font, btn_1p.collidepoint(mouse_pos))
-        _draw_button(screen, btn_2p, "2 Players", font, btn_2p.collidepoint(mouse_pos))
+        for idx, rect in enumerate(rects):
+            hovered = rect.collidepoint(mouse_pos) or idx == selected_idx
+            _draw_button(screen, rect, labels[idx], font, hovered)
 
         pygame.display.flip()
 
 
-def show_difficulty_select(screen, fonts) -> DifficultyConfig:
+def show_difficulty_select(screen, fonts, input_manager=None) -> DifficultyConfig:
     """Runs an event loop until the player clicks a difficulty button.
 
     Returns:
@@ -91,6 +119,8 @@ def show_difficulty_select(screen, fonts) -> DifficultyConfig:
         (btn_hard,   "Hard",   HARD),
     ]
 
+    selected_idx = 0
+
     while True:
         mouse_pos = pygame.mouse.get_pos()
 
@@ -98,6 +128,8 @@ def show_difficulty_select(screen, fonts) -> DifficultyConfig:
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if input_manager is not None:
+                input_manager.process_event(event)
             if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
                 pygame.quit()
                 sys.exit()
@@ -105,13 +137,98 @@ def show_difficulty_select(screen, fonts) -> DifficultyConfig:
                 for rect, _, config in buttons:
                     if rect.collidepoint(event.pos):
                         return config
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    selected_idx = _next_menu_index(selected_idx, -1, len(buttons))
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    selected_idx = _next_menu_index(selected_idx, 1, len(buttons))
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return buttons[selected_idx][2]
+
+        if input_manager is not None:
+            menu_actions = input_manager.get_menu_actions()
+            if menu_actions["up"]:
+                selected_idx = _next_menu_index(selected_idx, -1, len(buttons))
+            elif menu_actions["down"]:
+                selected_idx = _next_menu_index(selected_idx, 1, len(buttons))
+            if menu_actions["confirm"]:
+                return buttons[selected_idx][2]
 
         screen.fill(BG_COLOR)
 
         title = font_big.render("Select Difficulty", True, TITLE_COLOR)
         screen.blit(title, title.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 - 140)))
 
-        for rect, label, _ in buttons:
-            _draw_button(screen, rect, label, font, rect.collidepoint(mouse_pos))
+        for idx, (rect, label, _) in enumerate(buttons):
+            hovered = rect.collidepoint(mouse_pos) or idx == selected_idx
+            _draw_button(screen, rect, label, font, hovered)
 
+        pygame.display.flip()
+
+
+def show_controller_assignment(screen, fonts, input_manager):
+    """2P assignment screen. Players claim controllers by pressing any button."""
+    font = fonts["font"] if "font" in fonts else pygame.font.SysFont(None, 26)
+    font_big = fonts["font_big"] if "font_big" in fonts else pygame.font.SysFont(None, 64)
+
+    btn_w, btn_h = 360, 60
+    done_btn = pygame.Rect(SCREEN_W // 2 - btn_w // 2, SCREEN_H - 110, btn_w, btn_h)
+
+    while True:
+        mouse_pos = pygame.mouse.get_pos()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            input_manager.process_event(event)
+
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and done_btn.collidepoint(event.pos):
+                return
+
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.instance_id not in input_manager.player_assignments.values():
+                    if input_manager.get_assigned_controller(0) is None:
+                        input_manager.assign_controller(0, event.instance_id)
+                    elif input_manager.get_assigned_controller(1) is None:
+                        input_manager.assign_controller(1, event.instance_id)
+
+        screen.fill(BG_COLOR)
+        title = font_big.render("Controller Assignment", True, TITLE_COLOR)
+        screen.blit(title, title.get_rect(center=(SCREEN_W // 2, 110)))
+
+        subtitle = font.render("Press any controller button to claim a player slot", True, (180, 180, 200))
+        screen.blit(subtitle, subtitle.get_rect(center=(SCREEN_W // 2, 165)))
+
+        p1_assigned = input_manager.get_assigned_controller(0)
+        p2_assigned = input_manager.get_assigned_controller(1)
+        p1_label = input_manager.get_controller_display(p1_assigned) if p1_assigned is not None else "Keyboard"
+        p2_label = input_manager.get_controller_display(p2_assigned) if p2_assigned is not None else "Keyboard"
+        p1_text = font.render(f"Player 1: {p1_label}", True, TEXT_COLOR)
+        p2_text = font.render(f"Player 2: {p2_label}", True, TEXT_COLOR)
+        screen.blit(p1_text, p1_text.get_rect(center=(SCREEN_W // 2, 260)))
+        screen.blit(p2_text, p2_text.get_rect(center=(SCREEN_W // 2, 310)))
+
+        connected = sorted(input_manager.controllers.keys())
+        if connected:
+            heading = font.render("Connected Controllers:", True, (180, 180, 200))
+            screen.blit(heading, heading.get_rect(center=(SCREEN_W // 2, 380)))
+            for idx, instance_id in enumerate(connected):
+                owner = None
+                if input_manager.get_assigned_controller(0) == instance_id:
+                    owner = "P1"
+                elif input_manager.get_assigned_controller(1) == instance_id:
+                    owner = "P2"
+                suffix = f" -> {owner}" if owner else " -> unassigned"
+                label = input_manager.get_controller_display(instance_id) + suffix
+                item = font.render(label, True, TEXT_COLOR)
+                screen.blit(item, item.get_rect(center=(SCREEN_W // 2, 410 + idx * 28)))
+
+        _draw_button(screen, done_btn, "Continue", font, done_btn.collidepoint(mouse_pos))
+        help_text = font.render("Enter / Space to continue", True, (140, 140, 170))
+        screen.blit(help_text, help_text.get_rect(center=(SCREEN_W // 2, SCREEN_H - 35)))
         pygame.display.flip()
