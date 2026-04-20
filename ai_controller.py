@@ -4,7 +4,7 @@ import math
 import random
 from dataclasses import dataclass
 from player import Player, PLAYER_SPEED
-from spells import SPELL_DEFS, Projectile
+from spells import SPELL_DEFS, Projectile, create_summon_effect
 
 
 @dataclass
@@ -64,6 +64,7 @@ class AIController:
         # Timestamp gates — initialised to 0 so the AI can act immediately
         self._next_move_time: int = 0
         self._next_cast_time: int = 0
+        self._next_summon_time: int = 0
 
         # Current movement direction (unit-ish vector components)
         self._move_dx: float = 0.0
@@ -253,6 +254,25 @@ class AIController:
 
         return None
 
+    def _choose_summon_spell(self, now: int) -> int | None:
+        if now < self._next_summon_time:
+            return None
+        summon_indices = [i for i, spell in enumerate(SPELL_DEFS) if spell.get("type") == "summon"]
+        available = [
+            i for i in summon_indices
+            if self.ai_wizard.mana >= SPELL_DEFS[i]["mana"]
+            and (now - self.ai_wizard.spell_cooldowns[i]) >= SPELL_DEFS[i]["cooldown"]
+        ]
+        if not available:
+            return None
+        # Keep summon cadence moderate so AI still uses baseline offensive spells.
+        self._next_summon_time = now + 2200
+        # Prefer temporary ally summons over one-shot when both are available.
+        allies = [i for i in available if SPELL_DEFS[i].get("summon_type") == "ally"]
+        if allies:
+            return random.choice(allies)
+        return random.choice(available)
+
     def update(self, now: int, dt: int, human: Player, projectiles: list, arena_rect) -> object:
         """Called once per frame. Returns a new Projectile if the AI casts, otherwise None."""
         ai = self.ai_wizard
@@ -298,6 +318,13 @@ class AIController:
             human_vel = (0.0, 0.0)
 
         # _choose_spell updates _prev_human_pos / _prev_human_time internally
+        summon_idx = self._choose_summon_spell(now)
+        if summon_idx is not None:
+            spell = SPELL_DEFS[summon_idx]
+            self.ai_wizard.mana -= spell["mana"]
+            self.ai_wizard.spell_cooldowns[summon_idx] = now
+            return create_summon_effect(ai, human, spell, arena_rect)
+
         spell_idx = self._choose_spell(human, now)
         if spell_idx is not None:
             spell = SPELL_DEFS[spell_idx]

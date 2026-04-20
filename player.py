@@ -1,7 +1,7 @@
 import pygame
 import math
 import random
-from spells import SPELL_DEFS, Projectile, COUNTER_RADIUS, HEAL_AMOUNT, SHIELD_HITS
+from spells import SPELL_DEFS, Projectile, COUNTER_RADIUS, HEAL_AMOUNT, SHIELD_HITS, create_summon_effect
 
 PLAYER_SPEED = 4
 MANA_REGEN = 3  # mana per second
@@ -91,6 +91,8 @@ class Player:
         if spell["type"] == "instant":
             self._apply_instant(spell, target, projectiles, arena_rect)
             return None
+        if spell["type"] == "summon":
+            return create_summon_effect(self, target, spell, arena_rect)
 
         # Projectile — aim at opponent
         cx, cy = self.center

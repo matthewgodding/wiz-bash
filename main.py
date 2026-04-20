@@ -2,7 +2,7 @@ import pygame
 import sys
 from player import Player
 from arena import Arena
-from spells import SPELL_DEFS
+from spells import SPELL_DEFS, Projectile
 from menu import show_mode_select, show_difficulty_select, show_controller_assignment
 from ai_controller import AIController
 from input_manager import InputManager
@@ -11,6 +11,7 @@ SCREEN_W, SCREEN_H = 960, 620
 PANEL_W = 150          # side panel width for each player's spell list
 FPS = 60
 BG_COLOR = (20, 20, 30)
+MAX_SUMMONS_PER_PLAYER = 3
 
 
 def make_players(arena):
@@ -83,7 +84,12 @@ def draw_spell_panel(surface, player, panel_x, panel_y, font, font_small, now,
 
         # name + cost + type tag
         nc = (170, 170, 170) if (on_cd or no_mana) else (235, 235, 235)
-        label = spell["name"] + (" [D]" if spell["type"] == "instant" else "")
+        tag = ""
+        if spell["type"] == "instant":
+            tag = " [D]"
+        elif spell["type"] == "summon":
+            tag = " [S]"
+        label = spell["name"] + tag
         surface.blit(font_small.render(label, True, nc), (panel_x + 22, sy + 4))
         mc = (180, 60, 60) if no_mana else (100, 100, 220)
         surface.blit(font_small.render(f"{spell['mana']}mp", True, mc), (panel_x + 22, sy + 18))
@@ -96,23 +102,27 @@ def draw_spell_panel(surface, player, panel_x, panel_y, font, font_small, now,
             surface.blit(cd_surf, (panel_x + 5, sy))
 
 
-def draw_hud(surface, p1, p2, font, font_small, now, mode="2p", difficulty=None, input_manager=None):
+def draw_hud(surface, p1, p2, font, font_small, now, mode="2p", difficulty=None, input_manager=None, summon_counts=None):
     # Left panel — P1
     p1_label = p1.name
     if input_manager is not None and input_manager.get_assigned_controller(0) is not None:
         p1_label = f"{p1.name} (PAD)"
-    draw_spell_panel(surface, p1, 0, 10, font, font_small, now, label_override=p1_label)
+    p1_sub = f"Summons {summon_counts.get(0, 0)}" if summon_counts is not None else None
+    draw_spell_panel(surface, p1, 0, 10, font, font_small, now, label_override=p1_label, subtitle=p1_sub)
 
     # Right panel — P2 (or CPU in 1p mode)
     if mode == "1p":
         subtitle = difficulty.name if difficulty is not None else None
+        if summon_counts is not None:
+            subtitle = f"{subtitle or 'CPU'} | Summons {summon_counts.get(1, 0)}"
         draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now,
                          label_override="CPU", subtitle=subtitle)
     else:
         p2_label = p2.name
         if input_manager is not None and input_manager.get_assigned_controller(1) is not None:
             p2_label = f"{p2.name} (PAD)"
-        draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now, label_override=p2_label)
+        p2_sub = f"Summons {summon_counts.get(1, 0)}" if summon_counts is not None else None
+        draw_spell_panel(surface, p2, SCREEN_W - PANEL_W, 10, font, font_small, now, label_override=p2_label, subtitle=p2_sub)
 
     # Controls hint at very bottom center
     if mode == "1p":
@@ -157,6 +167,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
     input_manager.set_player_keyboard_controls(1, p2.controls)
     input_manager.auto_assign_for_mode(mode)
     projectiles = []
+    summons = []
     winner = None
 
     ai_controller = None
@@ -199,18 +210,37 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
                 p2.handle_input(keys, arena.rect, actions=p2_actions)
                 proj = p2.try_cast(keys, now, p1, projectiles, arena.rect, actions=p2_actions)
                 if proj:
-                    projectiles.append(proj)
+                    if isinstance(proj, Projectile):
+                        projectiles.append(proj)
+                    elif sum(1 for s in summons if s.owner is p2 and s.alive) < MAX_SUMMONS_PER_PLAYER:
+                        summons.append(proj)
             else:
                 # 1p mode: AI drives p2
                 proj = ai_controller.update(now, dt, p1, projectiles, arena.rect)
                 if proj is not None:
-                    projectiles.append(proj)
+                    if isinstance(proj, Projectile):
+                        projectiles.append(proj)
+                    elif sum(1 for s in summons if s.owner is p2 and s.alive) < MAX_SUMMONS_PER_PLAYER:
+                        summons.append(proj)
                 # p2 still needs status effect updates
                 p2.update(dt)
 
             proj = p1.try_cast(keys, now, p2, projectiles, arena.rect, actions=p1_actions)
             if proj:
-                projectiles.append(proj)
+                if isinstance(proj, Projectile):
+                    projectiles.append(proj)
+                elif sum(1 for s in summons if s.owner is p1 and s.alive) < MAX_SUMMONS_PER_PLAYER:
+                    summons.append(proj)
+
+            p1_summons = [s for s in summons if s.owner is p1 and s.alive]
+            p2_summons = [s for s in summons if s.owner is p2 and s.alive]
+            for summon in summons:
+                if not summon.alive:
+                    continue
+                if summon.owner is p1:
+                    summon.update(dt, arena.rect, p2, p2_summons, projectiles)
+                else:
+                    summon.update(dt, arena.rect, p1, p1_summons, projectiles)
 
             # Update projectiles
             for p in projectiles:
@@ -219,7 +249,18 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
                     p.apply(p2)
                 elif p.owner is p2 and p.check_hit(p1):
                     p.apply(p1)
+                elif p.owner is p1:
+                    for summon in p2_summons:
+                        if summon.alive and summon.collides_with_projectile(p):
+                            p.apply(summon)
+                            break
+                elif p.owner is p2:
+                    for summon in p1_summons:
+                        if summon.alive and summon.collides_with_projectile(p):
+                            p.apply(summon)
+                            break
             projectiles = [p for p in projectiles if p.alive]
+            summons = [s for s in summons if s.alive]
 
             p1.update(dt)
             if mode == "2p":
@@ -235,9 +276,26 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
         arena.draw(screen)
         for p in projectiles:
             p.draw(screen)
+        for summon in summons:
+            summon.draw(screen)
         p1.draw(screen)
         p2.draw(screen)
-        draw_hud(screen, p1, p2, font, font_small, now, mode=mode, difficulty=difficulty, input_manager=input_manager)
+        summon_counts = {
+            0: sum(1 for s in summons if s.owner is p1 and s.alive),
+            1: sum(1 for s in summons if s.owner is p2 and s.alive),
+        }
+        draw_hud(
+            screen,
+            p1,
+            p2,
+            font,
+            font_small,
+            now,
+            mode=mode,
+            difficulty=difficulty,
+            input_manager=input_manager,
+            summon_counts=summon_counts,
+        )
 
         if winner:
             draw_winner(screen, winner, font_big, mode=mode, p1_name=p1.name)
