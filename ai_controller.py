@@ -5,6 +5,7 @@ import random
 from dataclasses import dataclass
 from player import Player, PLAYER_SPEED
 from spells import SPELL_DEFS, Projectile, create_summon_effect
+from arena import resolve_actor_move
 
 
 @dataclass
@@ -274,7 +275,7 @@ class AIController:
             return random.choice(allies)
         return random.choice(available)
 
-    def update(self, now: int, dt: int, human: Player, projectiles: list, arena_rect) -> object:
+    def update(self, now: int, dt: int, human: Player, projectiles: list, arena_rect, obstacles=None, arena=None) -> object:
         """Called once per frame. Returns a new Projectile if the AI casts, otherwise None."""
         ai = self.ai_wizard
 
@@ -292,10 +293,15 @@ class AIController:
         dx, dy = self._choose_movement(human, effective_threats, arena_rect, now)
 
         # Step 4: Apply movement clamped to arena bounds
-        new_x = ai.x + dx * PLAYER_SPEED
-        new_y = ai.y + dy * PLAYER_SPEED
-        ai.x = max(arena_rect.left, min(arena_rect.right - ai.size, new_x))
-        ai.y = max(arena_rect.top,  min(arena_rect.bottom - ai.size, new_y))
+        if obstacles:
+            moved = resolve_actor_move(ai.rect, dx * PLAYER_SPEED, dy * PLAYER_SPEED, arena_rect, obstacles)
+            ai.x = float(moved.x)
+            ai.y = float(moved.y)
+        else:
+            new_x = ai.x + dx * PLAYER_SPEED
+            new_y = ai.y + dy * PLAYER_SPEED
+            ai.x = max(arena_rect.left, min(arena_rect.right - ai.size, new_x))
+            ai.y = max(arena_rect.top,  min(arena_rect.bottom - ai.size, new_y))
 
         # Step 5: Defensive spell
         def_idx = self._should_cast_defensive(human, effective_threats, now)
@@ -306,7 +312,7 @@ class AIController:
                     (now - ai.spell_cooldowns[def_idx]) >= spell["cooldown"]):
                 ai.mana -= spell["mana"]
                 ai.spell_cooldowns[def_idx] = now
-                ai._apply_instant(spell, human, projectiles, arena_rect)
+                ai._apply_instant(spell, human, projectiles, arena_rect, arena=arena)
                 if self.sound_manager is not None:
                     self.sound_manager.play_spell(spell["name"])
 
@@ -328,7 +334,7 @@ class AIController:
             self.ai_wizard.spell_cooldowns[summon_idx] = now
             if self.sound_manager is not None:
                 self.sound_manager.play_spell(spell["name"])
-            return create_summon_effect(ai, human, spell, arena_rect)
+            return create_summon_effect(ai, human, spell, arena_rect, arena=arena)
 
         spell_idx = self._choose_spell(human, now)
         if spell_idx is not None:

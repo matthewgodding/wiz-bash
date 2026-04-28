@@ -1,5 +1,6 @@
 import pygame
 import math
+from arena import resolve_actor_move
 
 # type: "projectile" fires a Projectile toward the opponent
 #       "instant"    resolves immediately on the caster (defensive)
@@ -75,7 +76,7 @@ class SummonedCreature:
                 return summon
         return None
 
-    def update(self, dt, arena_rect, enemy_player, enemy_summons, projectiles):
+    def update(self, dt, arena_rect, enemy_player, enemy_summons, projectiles, obstacles=None):
         if not self.alive:
             return
         self.age_ms += dt
@@ -109,8 +110,20 @@ class SummonedCreature:
                 if math.hypot(proj.x - sx, proj.y - sy) <= 35:
                     proj.alive = False
         elif dist > self.attack_range:
-            self.x += (tx - sx) / dist * move_speed
-            self.y += (ty - sy) / dist * move_speed
+            step_dx = (tx - sx) / dist * move_speed
+            step_dy = (ty - sy) / dist * move_speed
+            if obstacles:
+                moved = resolve_actor_move(
+                    pygame.Rect(int(self.x), int(self.y), self.size, self.size),
+                    step_dx,
+                    step_dy,
+                    arena_rect,
+                    obstacles,
+                )
+                self.x, self.y = float(moved.x), float(moved.y)
+            else:
+                self.x += step_dx
+                self.y += step_dy
 
         self.x = max(arena_rect.left, min(arena_rect.right - self.size, self.x))
         self.y = max(arena_rect.top, min(arena_rect.bottom - self.size, self.y))
@@ -230,7 +243,7 @@ class OneShotSummon:
         pygame.draw.circle(surface, flame, (cx, cy + 9), 4)
 
 
-def create_summon_effect(owner, target, spell_def, arena_rect):
+def create_summon_effect(owner, target, spell_def, arena_rect, arena=None):
     if spell_def.get("summon_type") == "one_shot":
         return OneShotSummon(owner, target, spell_def)
     sx = owner.x + owner.size // 2 - spell_def["radius"]
@@ -238,6 +251,16 @@ def create_summon_effect(owner, target, spell_def, arena_rect):
     summon = SummonedCreature(owner, spell_def, sx, sy)
     summon.x = max(arena_rect.left, min(arena_rect.right - summon.size, summon.x))
     summon.y = max(arena_rect.top, min(arena_rect.bottom - summon.size, summon.y))
+    if arena is not None:
+        summon_rect = pygame.Rect(int(summon.x), int(summon.y), summon.size, summon.size)
+        if not arena.is_spawn_valid(summon_rect):
+            for ox in range(-90, 100, 18):
+                for oy in range(-90, 100, 18):
+                    trial = pygame.Rect(int(summon.x + ox), int(summon.y + oy), summon.size, summon.size)
+                    if arena.is_spawn_valid(trial):
+                        summon.x = float(trial.x)
+                        summon.y = float(trial.y)
+                        return summon
     return summon
 
 

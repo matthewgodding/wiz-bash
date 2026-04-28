@@ -107,9 +107,7 @@ class InputManager:
         self.refresh_controllers()
         available = list(self.controllers.keys())
         if mode == "1p":
-            # In 1P mode default to keyboard control for P1 to avoid unwanted
-            # analog stick drift when a controller is merely connected.
-            self.player_assignments[0] = None
+            self.player_assignments[0] = available[0] if available else None
             self.player_assignments[1] = None
         else:
             if len(available) >= 2:
@@ -129,10 +127,21 @@ class InputManager:
 
     def get_actions(self, player_index, keys):
         actions = {name: False for name in ACTION_NAMES}
+        controls = self.player_keyboard_controls.get(player_index)
+
+        # Keyboard always remains active.
+        if controls is not None:
+            actions["up"] = bool(keys[controls["up"]])
+            actions["down"] = bool(keys[controls["down"]])
+            actions["left"] = bool(keys[controls["left"]])
+            actions["right"] = bool(keys[controls["right"]])
+            actions["cast"] = bool(keys[controls["cast"]])
+            actions["spell_next"] = bool(keys[controls["spell_next"]])
+            actions["spell_prev"] = bool(keys[controls["spell_prev"]])
 
         controller_actions = self._read_controller_actions(player_index)
         for name in ACTION_NAMES:
-            actions[name] = controller_actions[name]
+            actions[name] = actions[name] or controller_actions[name]
         return actions
 
     def _read_controller_actions(self, player_index):

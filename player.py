@@ -2,6 +2,7 @@ import pygame
 import math
 import random
 from spells import SPELL_DEFS, Projectile, COUNTER_RADIUS, HEAL_AMOUNT, SHIELD_HITS, create_summon_effect
+from arena import resolve_actor_move
 
 PLAYER_SPEED = 4
 MANA_REGEN = 3  # mana per second
@@ -43,7 +44,7 @@ class Player:
     def current_spell(self):
         return SPELL_DEFS[self.selected_spell]
 
-    def handle_input(self, keys, arena_rect, actions=None):
+    def handle_input(self, keys, arena_rect, actions=None, obstacles=None):
         speed = PLAYER_SPEED // 2 if self.slow_timer > 0 else PLAYER_SPEED
         dx, dy = 0, 0
         if keys[self.controls["up"]]:    dy -= speed
@@ -55,8 +56,13 @@ class Player:
             if actions.get("down"):  dy += speed
             if actions.get("left"):  dx -= speed
             if actions.get("right"): dx += speed
-        self.x = max(arena_rect.left, min(arena_rect.right - self.size, self.x + dx))
-        self.y = max(arena_rect.top,  min(arena_rect.bottom - self.size, self.y + dy))
+        if obstacles:
+            moved = resolve_actor_move(self.rect, dx, dy, arena_rect, obstacles)
+            self.x = float(moved.x)
+            self.y = float(moved.y)
+        else:
+            self.x = max(arena_rect.left, min(arena_rect.right - self.size, self.x + dx))
+            self.y = max(arena_rect.top,  min(arena_rect.bottom - self.size, self.y + dy))
 
     def handle_spell_switch(self, event):
         if event.key == self.controls["spell_next"]:
@@ -70,7 +76,7 @@ class Player:
         elif actions.get("spell_prev"):
             self.selected_spell = (self.selected_spell - 1) % len(SPELL_DEFS)
 
-    def try_cast(self, keys, now, target, projectiles, arena_rect, actions=None, sound_manager=None):
+    def try_cast(self, keys, now, target, projectiles, arena_rect, actions=None, sound_manager=None, arena=None):
         """Returns a new Projectile or None. Instant spells resolve here."""
         cast_pressed = bool(keys[self.controls["cast"]])
         if actions is not None:
@@ -91,7 +97,7 @@ class Player:
             sound_manager.play_spell(spell["name"])
 
         if spell["type"] == "instant":
-            self._apply_instant(spell, target, projectiles, arena_rect)
+            self._apply_instant(spell, target, projectiles, arena_rect, arena=arena)
             return None
         if spell["type"] == "summon":
             return create_summon_effect(self, target, spell, arena_rect)
@@ -104,7 +110,7 @@ class Player:
         dy = (ty - cy) / dist * spell["speed"]
         return Projectile(cx, cy, dx, dy, self, spell, target=target)
 
-    def _apply_instant(self, spell, target, projectiles, arena_rect):
+    def _apply_instant(self, spell, target, projectiles, arena_rect, arena=None):
         effect = spell["effect"]
 
         if effect == "shield":
@@ -126,7 +132,21 @@ class Player:
                 d = math.hypot(cx2 - tx, cy2 - ty)
                 if d > best_dist:
                     best, best_dist = (cx2, cy2), d
-            self.x, self.y = float(best[0]), float(best[1])
+            if arena is not None:
+                # Try several candidates and pick the best valid one.
+                valid = []
+                for _ in range(12):
+                    vx = arena_rect.left + random.randint(20, arena_rect.width - self.size - 20)
+                    vy = arena_rect.top + random.randint(20, arena_rect.height - self.size - 20)
+                    candidate_rect = pygame.Rect(vx, vy, self.size, self.size)
+                    if arena.is_spawn_valid(candidate_rect):
+                        valid.append((vx, vy))
+                if valid:
+                    self.x, self.y = float(valid[0][0]), float(valid[0][1])
+                else:
+                    self.x, self.y = float(best[0]), float(best[1])
+            else:
+                self.x, self.y = float(best[0]), float(best[1])
             self.blink_flash = 400
 
         elif effect == "counter":

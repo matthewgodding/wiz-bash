@@ -1,7 +1,7 @@
 import pygame
 import sys
 from player import Player
-from arena import Arena
+from arena import Arena, projectile_hits_obstacle
 from spells import SPELL_DEFS, Projectile
 from audio_manager import SoundManager
 from menu import (
@@ -169,6 +169,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
     font_small = fonts["font_small"]
 
     p1, p2 = make_players(arena)
+    arena.reset_random_terrain([p1.center, p2.center])
     input_manager.set_player_keyboard_controls(0, p1.controls)
     input_manager.set_player_keyboard_controls(1, p2.controls)
     input_manager.auto_assign_for_mode(mode)
@@ -203,18 +204,32 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
                         p2.handle_spell_switch(event)
 
         if not winner:
-            p1_actions = input_manager.get_actions(0, keys)
-            p2_actions = input_manager.get_actions(1, keys)
+            p1_all_actions = input_manager.get_actions(0, keys)
+            p2_all_actions = input_manager.get_actions(1, keys)
+            p1_uses_controller = input_manager.get_assigned_controller(0) is not None
+            p2_uses_controller = input_manager.get_assigned_controller(1) is not None
+            p1_actions = p1_all_actions if p1_uses_controller else None
+            p2_actions = p2_all_actions if p2_uses_controller else None
 
-            p1.handle_spell_switch_action(p1_actions)
+            p1.handle_spell_switch_action(p1_actions or {})
             if mode == "2p":
-                p2.handle_spell_switch_action(p2_actions)
+                p2.handle_spell_switch_action(p2_actions or {})
 
-            p1.handle_input(keys, arena.rect, actions=p1_actions)
+            blocking = arena.get_blocking_rects()
+            p1.handle_input(keys, arena.rect, actions=p1_actions, obstacles=blocking)
 
             if mode == "2p":
-                p2.handle_input(keys, arena.rect, actions=p2_actions)
-                proj = p2.try_cast(keys, now, p1, projectiles, arena.rect, actions=p2_actions, sound_manager=sound_manager)
+                p2.handle_input(keys, arena.rect, actions=p2_actions, obstacles=blocking)
+                proj = p2.try_cast(
+                    keys,
+                    now,
+                    p1,
+                    projectiles,
+                    arena.rect,
+                    actions=p2_actions,
+                    sound_manager=sound_manager,
+                    arena=arena,
+                )
                 if proj:
                     if isinstance(proj, Projectile):
                         projectiles.append(proj)
@@ -222,7 +237,15 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
                         summons.append(proj)
             else:
                 # 1p mode: AI drives p2
-                proj = ai_controller.update(now, dt, p1, projectiles, arena.rect)
+                proj = ai_controller.update(
+                    now,
+                    dt,
+                    p1,
+                    projectiles,
+                    arena.rect,
+                    obstacles=blocking,
+                    arena=arena,
+                )
                 if proj is not None:
                     if isinstance(proj, Projectile):
                         projectiles.append(proj)
@@ -231,7 +254,16 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
                 # p2 still needs status effect updates
                 p2.update(dt)
 
-            proj = p1.try_cast(keys, now, p2, projectiles, arena.rect, actions=p1_actions, sound_manager=sound_manager)
+            proj = p1.try_cast(
+                keys,
+                now,
+                p2,
+                projectiles,
+                arena.rect,
+                actions=p1_actions,
+                sound_manager=sound_manager,
+                arena=arena,
+            )
             if proj:
                 if isinstance(proj, Projectile):
                     projectiles.append(proj)
@@ -244,13 +276,18 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
                 if not summon.alive:
                     continue
                 if summon.owner is p1:
-                    summon.update(dt, arena.rect, p2, p2_summons, projectiles)
+                    summon.update(dt, arena.rect, p2, p2_summons, projectiles, obstacles=blocking)
                 else:
-                    summon.update(dt, arena.rect, p1, p1_summons, projectiles)
+                    summon.update(dt, arena.rect, p1, p1_summons, projectiles, obstacles=blocking)
 
             # Update projectiles
             for p in projectiles:
                 p.update(dt, arena.rect)
+                if p.alive:
+                    obstacle_hit = projectile_hits_obstacle(p.x, p.y, p.spell["radius"], blocking)
+                    if obstacle_hit is not None:
+                        arena.damage_building_at(obstacle_hit, p.spell["damage"])
+                        p.alive = False
                 if p.owner is p1 and p.check_hit(p2):
                     p.apply(p2)
                 elif p.owner is p2 and p.check_hit(p1):
@@ -266,6 +303,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, 
                             p.apply(summon)
                             break
             projectiles = [p for p in projectiles if p.alive]
+            arena.prune_destroyed()
             summons = [s for s in summons if s.alive]
 
             p1.update(dt)
