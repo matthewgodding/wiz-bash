@@ -57,9 +57,10 @@ def _is_threat(proj: Projectile, ai_wizard: Player) -> bool:
 
 
 class AIController:
-    def __init__(self, ai_wizard: Player, config: DifficultyConfig) -> None:
+    def __init__(self, ai_wizard: Player, config: DifficultyConfig, sound_manager=None) -> None:
         self.ai_wizard = ai_wizard
         self.config = config
+        self.sound_manager = sound_manager
 
         # Timestamp gates — initialised to 0 so the AI can act immediately
         self._next_move_time: int = 0
@@ -306,6 +307,8 @@ class AIController:
                 ai.mana -= spell["mana"]
                 ai.spell_cooldowns[def_idx] = now
                 ai._apply_instant(spell, human, projectiles, arena_rect)
+                if self.sound_manager is not None:
+                    self.sound_manager.play_spell(spell["name"])
 
         # Step 6: Estimate human velocity before calling _choose_spell
         # (velocity is also computed inside _choose_spell, but we need it here for lead aim)
@@ -323,6 +326,8 @@ class AIController:
             spell = SPELL_DEFS[summon_idx]
             self.ai_wizard.mana -= spell["mana"]
             self.ai_wizard.spell_cooldowns[summon_idx] = now
+            if self.sound_manager is not None:
+                self.sound_manager.play_spell(spell["name"])
             return create_summon_effect(ai, human, spell, arena_rect)
 
         spell_idx = self._choose_spell(human, now)
@@ -337,6 +342,8 @@ class AIController:
             # Deduct mana and set cooldown
             ai.mana -= spell["mana"]
             ai.spell_cooldowns[spell_idx] = now
+            if self.sound_manager is not None:
+                self.sound_manager.play_spell(spell["name"])
             return Projectile(ax, ay, proj_dx, proj_dy, ai, spell, target=human)
 
         return None

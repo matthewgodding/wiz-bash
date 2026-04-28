@@ -3,6 +3,7 @@ import sys
 from player import Player
 from arena import Arena
 from spells import SPELL_DEFS, Projectile
+from audio_manager import SoundManager
 from menu import (
     show_mode_select,
     show_difficulty_select,
@@ -157,7 +158,7 @@ def draw_winner(surface, winner, font_big, mode="2p", p1_name="P1"):
     surface.blit(sub, sub.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 + 20)))
 
 
-def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
+def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None, sound_manager=None):
     """
     Runs a single match. Returns when the match ends (winner determined and R pressed).
     mode: "1p" or "2p"
@@ -177,7 +178,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
 
     ai_controller = None
     if mode == "1p":
-        ai_controller = AIController(p2, difficulty)
+        ai_controller = AIController(p2, difficulty, sound_manager=sound_manager)
 
     while True:
         dt  = clock.tick(FPS)
@@ -213,7 +214,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
 
             if mode == "2p":
                 p2.handle_input(keys, arena.rect, actions=p2_actions)
-                proj = p2.try_cast(keys, now, p1, projectiles, arena.rect, actions=p2_actions)
+                proj = p2.try_cast(keys, now, p1, projectiles, arena.rect, actions=p2_actions, sound_manager=sound_manager)
                 if proj:
                     if isinstance(proj, Projectile):
                         projectiles.append(proj)
@@ -230,7 +231,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
                 # p2 still needs status effect updates
                 p2.update(dt)
 
-            proj = p1.try_cast(keys, now, p2, projectiles, arena.rect, actions=p1_actions)
+            proj = p1.try_cast(keys, now, p2, projectiles, arena.rect, actions=p1_actions, sound_manager=sound_manager)
             if proj:
                 if isinstance(proj, Projectile):
                     projectiles.append(proj)
@@ -310,6 +311,7 @@ def run_game(screen, clock, fonts, arena, mode, input_manager, difficulty=None):
 
 def main():
     pygame.init()
+    sound_manager = SoundManager()
     input_manager = InputManager()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("Arena RPG — Wizard Duel")
@@ -337,7 +339,7 @@ def main():
                 if selected_controller is not None:
                     input_manager.assign_controller(0, selected_controller)
             difficulty = show_difficulty_select(screen, fonts, input_manager=input_manager)
-        run_game(screen, clock, fonts, arena, mode, input_manager, difficulty)
+        run_game(screen, clock, fonts, arena, mode, input_manager, difficulty, sound_manager)
         # After run_game returns, loop back to show_mode_select
 
 
