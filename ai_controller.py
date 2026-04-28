@@ -4,7 +4,7 @@ import math
 import random
 from dataclasses import dataclass
 from player import Player, PLAYER_SPEED
-from spells import SPELL_DEFS, Projectile, create_summon_effect
+from spells import SPELL_DEFS, Projectile, COUNTER_RADIUS, create_summon_effect
 from arena import resolve_actor_move
 
 
@@ -55,6 +55,27 @@ def _is_threat(proj: Projectile, ai_wizard: Player) -> bool:
     cy = proj.y + proj.dy * t
     dist = math.hypot(cx - ax, cy - ay)
     return dist < ai_wizard.size * 1.5
+
+
+def _threat_time_to_impact(proj: Projectile, ai_wizard: Player) -> float | None:
+    """Estimate milliseconds until a projectile reaches the AI, or None if not approaching."""
+    ax, ay = ai_wizard.center
+    rx, ry = ax - proj.x, ay - proj.y
+    speed_sq = proj.dx**2 + proj.dy**2
+    if speed_sq == 0:
+        return None
+    t = (rx * proj.dx + ry * proj.dy) / speed_sq
+    if t <= 0:
+        return None
+    cx = proj.x + proj.dx * t
+    cy = proj.y + proj.dy * t
+    # Keep the same threat corridor semantics as _is_threat.
+    if math.hypot(cx - ax, cy - ay) >= ai_wizard.size * 1.5:
+        return None
+    speed = math.sqrt(speed_sq)
+    # Projectile speed is in px/frame at 60 FPS.
+    frames = t / speed
+    return frames * (1000 / 60.0)
 
 
 class AIController:
@@ -233,24 +254,36 @@ class AIController:
                 return 8
             return None
 
+        threat_times = [
+            t_ms for t_ms in (_threat_time_to_impact(t, ai) for t in threats)
+            if t_ms is not None
+        ]
+        imminent = any(t <= 350 for t in threat_times)
+        near_future = any(t <= 700 for t in threat_times)
+        close_threats = [
+            p for p in threats
+            if math.hypot(p.x - ai.center[0], p.y - ai.center[1]) <= COUNTER_RADIUS
+        ]
+
         # Normal priority logic
-        if len(threats) >= 2:
-            # Priority 1: Counterspell
-            if is_available(7):
+        # Priority 1: Counterspell against stacked/close pressure.
+        if is_available(7):
+            if len(close_threats) >= 2 or (imminent and close_threats):
                 return 7
 
         if threats:
-            # Priority 2: Shield (HP-proportional probability)
-            if is_available(5):
-                if random.random() < (1 - hp_ratio):
+            # Priority 2: Shield before impact if not already active.
+            if ai.shield <= 0 and is_available(5):
+                if imminent or (near_future and hp_ratio < 0.85):
                     return 5
 
-            # Priority 3: Blink (threat present, Shield/Counterspell unavailable)
+            # Priority 3: Blink as emergency reposition if pressure remains.
             if is_available(6):
-                return 6
+                if imminent or len(threats) >= 2 or hp_ratio < 0.45:
+                    return 6
 
-        # Priority 4: Heal (HP < 30%, no threat)
-        if not threats and hp_ratio < 0.30:
+        # Priority 4: Heal during downtime at low HP.
+        if not threats and hp_ratio < 0.55:
             if is_available(8):
                 return 8
 
