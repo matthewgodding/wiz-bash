@@ -3,7 +3,12 @@ import sys
 from player import Player
 from arena import Arena
 from spells import SPELL_DEFS, Projectile
-from menu import show_mode_select, show_difficulty_select, show_controller_assignment
+from menu import (
+    show_mode_select,
+    show_difficulty_select,
+    show_controller_assignment,
+    show_single_player_control_select,
+)
 from ai_controller import AIController
 from input_manager import InputManager
 
@@ -326,6 +331,11 @@ def main():
             input_manager.auto_assign_for_mode(mode)
         difficulty = None
         if mode == "1p":
+            if input_manager.has_any_controller():
+                selected_controller = show_single_player_control_select(screen, fonts, input_manager)
+                input_manager.unassign_player(0)
+                if selected_controller is not None:
+                    input_manager.assign_controller(0, selected_controller)
             difficulty = show_difficulty_select(screen, fonts, input_manager=input_manager)
         run_game(screen, clock, fonts, arena, mode, input_manager, difficulty)
         # After run_game returns, loop back to show_mode_select

@@ -337,6 +337,6 @@ class AIController:
             # Deduct mana and set cooldown
             ai.mana -= spell["mana"]
             ai.spell_cooldowns[spell_idx] = now
-            return Projectile(ax, ay, proj_dx, proj_dy, ai, spell)
+            return Projectile(ax, ay, proj_dx, proj_dy, ai, spell, target=human)
 
         return None

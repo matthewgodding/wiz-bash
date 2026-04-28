@@ -9,7 +9,7 @@ SPELL_DEFS = [
     {"name": "Fireball",       "type": "projectile", "mana": 25, "damage": 30, "speed": 6,  "color": (255, 100,  20), "radius": 10, "effect": None,        "cooldown": 600},
     {"name": "Frost Bolt",     "type": "projectile", "mana": 20, "damage": 15, "speed": 5,  "color": ( 80, 200, 255), "radius":  8, "effect": "slow",      "cooldown": 700},
     {"name": "Lightning",      "type": "projectile", "mana": 30, "damage": 40, "speed": 18, "color": (255, 255,  80), "radius":  5, "effect": None,        "cooldown": 900},
-    {"name": "Arcane Missile", "type": "projectile", "mana": 10, "damage": 12, "speed": 7,  "color": (200,  80, 255), "radius":  6, "effect": None,        "cooldown": 350},
+    {"name": "Arcane Missile", "type": "projectile", "mana": 10, "damage": 12, "speed": 7,  "color": (200,  80, 255), "radius":  6, "effect": None,        "cooldown": 350, "homing": True, "turn_rate": 0.16},
     {"name": "Mana Drain",     "type": "projectile", "mana": 15, "damage":  5, "speed": 5,  "color": ( 80, 255, 180), "radius":  7, "effect": "manadrain", "cooldown": 800},
     # --- defensive ---
     {"name": "Shield",         "type": "instant",    "mana": 20, "damage":  0, "speed": 0,  "color": (180, 220, 255), "radius":  0, "effect": "shield",    "cooldown": 3000},
@@ -242,13 +242,14 @@ def create_summon_effect(owner, target, spell_def, arena_rect):
 
 
 class Projectile:
-    def __init__(self, x, y, dx, dy, owner, spell_def):
+    def __init__(self, x, y, dx, dy, owner, spell_def, target=None):
         self.x = float(x)
         self.y = float(y)
         self.dx = dx
         self.dy = dy
         self.owner = owner
         self.spell = spell_def
+        self.target = target
         self.alive = True
         self.trail = []
 
@@ -256,6 +257,24 @@ class Projectile:
         self.trail.append((int(self.x), int(self.y)))
         if len(self.trail) > 8:
             self.trail.pop(0)
+        if self.spell.get("homing") and self.target is not None and self.target.is_alive():
+            tx, ty = self.target.center
+            vx = tx - self.x
+            vy = ty - self.y
+            dist = math.hypot(vx, vy)
+            if dist > 0:
+                speed = self.spell["speed"]
+                desired_dx = (vx / dist) * speed
+                desired_dy = (vy / dist) * speed
+                turn_rate = self.spell.get("turn_rate", 0.15)
+                # Blend toward desired heading to create smooth missile steering.
+                self.dx += (desired_dx - self.dx) * turn_rate
+                self.dy += (desired_dy - self.dy) * turn_rate
+
+                cur_speed = math.hypot(self.dx, self.dy)
+                if cur_speed > 0:
+                    self.dx = (self.dx / cur_speed) * speed
+                    self.dy = (self.dy / cur_speed) * speed
         self.x += self.dx
         self.y += self.dy
         if not arena_rect.collidepoint(self.x, self.y):

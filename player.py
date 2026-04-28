@@ -70,7 +70,7 @@ class Player:
         elif actions.get("spell_prev"):
             self.selected_spell = (self.selected_spell - 1) % len(SPELL_DEFS)
 
-    def try_cast(self, keys, now, target, projectiles, arena_rect, actions=None):
+    def try_cast(self, keys, now, target, projectiles, arena_rect, actions=None, sound_manager=None):
         """Returns a new Projectile or None. Instant spells resolve here."""
         cast_pressed = bool(keys[self.controls["cast"]])
         if actions is not None:
@@ -87,6 +87,8 @@ class Player:
         self.spell_cooldowns[self.selected_spell] = now
         self.casting = True
         self.cast_timer = 200
+        if sound_manager is not None:
+            sound_manager.play_spell(spell["name"])
 
         if spell["type"] == "instant":
             self._apply_instant(spell, target, projectiles, arena_rect)
@@ -100,7 +102,7 @@ class Player:
         dist = math.hypot(tx - cx, ty - cy) or 1
         dx = (tx - cx) / dist * spell["speed"]
         dy = (ty - cy) / dist * spell["speed"]
-        return Projectile(cx, cy, dx, dy, self, spell)
+        return Projectile(cx, cy, dx, dy, self, spell, target=target)
 
     def _apply_instant(self, spell, target, projectiles, arena_rect):
         effect = spell["effect"]

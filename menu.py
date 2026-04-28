@@ -166,6 +166,73 @@ def show_difficulty_select(screen, fonts, input_manager=None) -> DifficultyConfi
         pygame.display.flip()
 
 
+def show_single_player_control_select(screen, fonts, input_manager):
+    """Pick Keyboard or Controller for Player 1 in 1P mode."""
+    font = fonts["font"] if "font" in fonts else pygame.font.SysFont(None, 26)
+    font_big = fonts["font_big"] if "font_big" in fonts else pygame.font.SysFont(None, 64)
+
+    # Refresh in case controllers changed since the previous menu.
+    input_manager.refresh_controllers()
+    connected_ids = sorted(input_manager.controllers.keys())
+
+    options = [("Keyboard", None)]
+    for instance_id in connected_ids:
+        options.append((input_manager.get_controller_display(instance_id), instance_id))
+
+    btn_w, btn_h = 500, 54
+    gap = 14
+    total_h = len(options) * btn_h + (len(options) - 1) * gap
+    start_y = SCREEN_H // 2 - total_h // 2 + 40
+    rects = [
+        pygame.Rect(SCREEN_W // 2 - btn_w // 2, start_y + i * (btn_h + gap), btn_w, btn_h)
+        for i in range(len(options))
+    ]
+    selected_idx = 0
+
+    while True:
+        mouse_pos = pygame.mouse.get_pos()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            input_manager.process_event(event)
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for idx, rect in enumerate(rects):
+                    if rect.collidepoint(event.pos):
+                        return options[idx][1]
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_UP, pygame.K_w):
+                    selected_idx = _next_menu_index(selected_idx, -1, len(options))
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    selected_idx = _next_menu_index(selected_idx, 1, len(options))
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return options[selected_idx][1]
+
+        menu_actions = input_manager.get_menu_actions()
+        if menu_actions["up"]:
+            selected_idx = _next_menu_index(selected_idx, -1, len(options))
+        elif menu_actions["down"]:
+            selected_idx = _next_menu_index(selected_idx, 1, len(options))
+        if menu_actions["confirm"]:
+            return options[selected_idx][1]
+
+        screen.fill(BG_COLOR)
+        title = font_big.render("Player 1 Controls", True, TITLE_COLOR)
+        screen.blit(title, title.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 - 150)))
+        subtitle = font.render("Choose input device for 1 Player mode", True, (180, 180, 200))
+        screen.blit(subtitle, subtitle.get_rect(center=(SCREEN_W // 2, SCREEN_H // 2 - 100)))
+
+        for idx, rect in enumerate(rects):
+            hovered = rect.collidepoint(mouse_pos) or idx == selected_idx
+            _draw_button(screen, rect, options[idx][0], font, hovered)
+
+        pygame.display.flip()
+
+
 def show_controller_assignment(screen, fonts, input_manager):
     """2P assignment screen. Players claim controllers by pressing any button."""
     font = fonts["font"] if "font" in fonts else pygame.font.SysFont(None, 26)
